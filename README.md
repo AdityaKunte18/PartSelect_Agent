@@ -16,3 +16,10 @@
 1. `python3.10 -m venv venv && source venv/bin/activate` (inside server folder)
 2. Then `pip install google-adk`
 
+
+### Notes
+- Within `server/my_agent/` you will need to create a .env file containing:
+    - GOOGLE_API_KEY
+    - SUPABASE_URL
+    - SUPABASE_SERVICE_ROLE_KEY
+    - CHECKOUT_BASE_URL
