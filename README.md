@@ -23,3 +23,7 @@
     - SUPABASE_URL
     - SUPABASE_SERVICE_ROLE_KEY
     - CHECKOUT_BASE_URL
+
+
+My slides: 
+https://docs.google.com/presentation/d/1lcQYdBg6O2TpYQBAVqZnjpNUvM-2Aqp819Rp9t0p_fY/edit?usp=sharing
