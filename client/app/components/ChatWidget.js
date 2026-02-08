@@ -1,6 +1,6 @@
 'use client';
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageSquare, X, Send } from 'lucide-react';
+import { MessageSquare, X, Send, CheckCircle, XCircle } from 'lucide-react';
 
 export default function ChatWidget() {
   
@@ -145,16 +145,42 @@ export default function ChatWidget() {
     }
 
     if (ui.type === 'compatibility') {
-      const compatible = !!ui.compatible;
+      const compatible = typeof ui.compatible === 'boolean' ? ui.compatible : null;
+      const modelNumber = ui.model_number || ui.model?.model_number;
+      const partNumber = ui.part_number || ui.part?.part_number;
+      const items = Array.isArray(ui.items) ? ui.items : [];
       return (
         <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
           <div className="font-semibold">Compatibility</div>
           <div className="mt-1">
-            <div><span className="font-medium">Part:</span> {ui.part_number}</div>
-            <div><span className="font-medium">Model:</span> {ui.model_number}</div>
-            <div className={`mt-1 inline-flex rounded px-2 py-0.5 text-[11px] ${compatible ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-              {compatible ? 'Compatible' : 'Not compatible'}
-            </div>
+            {partNumber ? (
+              <div><span className="font-medium">Part:</span> {partNumber}</div>
+            ) : null}
+            {modelNumber ? (
+              <div><span className="font-medium">Model:</span> {modelNumber}</div>
+            ) : null}
+            {compatible !== null ? (
+              <div className="mt-2 inline-flex items-center gap-2 rounded px-2 py-1 text-[11px]">
+                {compatible ? (
+                  <CheckCircle size={14} className="text-green-600" />
+                ) : (
+                  <XCircle size={14} className="text-red-600" />
+                )}
+                <span className={compatible ? 'text-green-700' : 'text-red-700'}>
+                  {compatible ? 'Compatible' : 'Not compatible'}
+                </span>
+              </div>
+            ) : null}
+            {items.length ? (
+              <div className="mt-2 space-y-1">
+                {items.slice(0, 10).map((item) => (
+                  <div key={item.part_number} className="flex justify-between gap-2">
+                    <span className="font-medium">{item.part_number}</span>
+                    <span className="flex-1 text-right">{item.name}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
           </div>
         </div>
       );
@@ -276,8 +302,10 @@ export default function ChatWidget() {
     let hasReceivedTokens = false;
 
     let ignoreStreamedText = false;
+    let textLocked = false;
 
-    const updateAgentMessage = (deltaText, mode = 'append') => {
+    const updateAgentMessage = (deltaText, mode = 'append', force = false) => {
+      if (textLocked && !force) return;
       if (ignoreStreamedText && mode === 'append') return;
       setMessages((prev) =>
         prev.map((m) => {
@@ -292,7 +320,8 @@ export default function ChatWidget() {
       if (!uiPayload) return;
       if (uiPayload.replace_text) {
         ignoreStreamedText = true;
-        updateAgentMessage(uiPayload.replace_text, 'set');
+        textLocked = true;
+        updateAgentMessage(uiPayload.replace_text, 'set', true);
       }
       setMessages((prev) =>
         prev.map((m) => (m.id === agentMsgId ? { ...m, ui: uiPayload } : m))

@@ -27,6 +27,7 @@ from .tools import (
     list_supported_models,
     get_compatible_parts,
     get_compatible_models,
+    find_compatible_parts_by_keyword,
 )
 
 PS_RE = re.compile(r"\bPS\d{5,10}\b", re.IGNORECASE)
@@ -81,6 +82,17 @@ Listing rules:
 - If user asks for all parts or all products and confirms both categories: call list_products(category=None) to return a combined list.
 - Never print more than 25 at once; offer “next page” by increasing offset.
 
+Installation rules:
+- If the user asks for "installation instructions", "installation steps", "how to install", or "installing" a part, treat it as an installation guide request.
+- If no part number is provided, ask one short follow-up question: "What is the part number?"
+- If the user provides a model number and a part description, call find_compatible_parts_by_keyword(model_number, keyword).
+- If no matches are found, ask a short follow-up: "Do you know the part number?"
+- If the user says "this part" or refers to the last part discussed, use the most recent part number in session state and call get_installation_guide. Do NOT run compatibility checks for installation requests.
+- Treat common typos like "this past" as "this part" and still call get_installation_guide using the most recent part number.
+
+Compatibility rules:
+- Compatibility and compatible-parts lookups MUST use the model number (model_id/model_number), not the model name.
+- If the user provides a model name or descriptive model text, ask for the exact model number.
 
 Do NOT handle:
 - Cart/checkout/shipping/quantity changes.
@@ -107,11 +119,13 @@ Transactions:
 - If user says "remove all" / "remove it" / "delete": use remove_from_cart(session_id, part_number).
 - If user says "remove N" / "take off N": use decrement_cart_item(session_id, part_number, quantity=N).
 - Never set quantity to 0. Use remove_from_cart instead.
+- Do NOT block adds/updates due to compatibility. If the user wants to add a part, add it even if compatibility is unknown or not checked. You may optionally warn if they ask about compatibility.
 
 Other actions:
 - Cart: use get_cart(session_id).
 - Shipping: use estimate_shipping(session_id, zip_code).
 - Checkout: use create_checkout_session(session_id, user_id if available) and return checkout_url.
+- Do NOT ask for a zip code unless the user explicitly requests a shipping estimate.
 
 Do NOT handle:
 - Catalog/compatibility/installation questions.
@@ -156,6 +170,7 @@ Routing rules (internal only):
 
 Routing priority:
 - If the user mentions cart actions or checkout ("add", "buy", "cart", "remove", "quantity", "shipping", "checkout"), ALWAYS route to transaction_specialist, even if a part number is included.
+- If the user mentions installation instructions or how to install, ALWAYS route to catalog_specialist.
 
 When you call a specialist tool, you must still respond to the user yourself:
 - Read the tool result and reply in the coordinator voice.
@@ -182,6 +197,7 @@ catalog_agent = Agent(
         list_supported_models,
         get_compatible_parts,
         get_compatible_models,
+        find_compatible_parts_by_keyword,
     ],
 )
 

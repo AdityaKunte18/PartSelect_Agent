@@ -68,6 +68,20 @@ def _emit_ui(tool_context: Optional[ToolContext], payload: Dict[str, Any]) -> No
         pass
 
 
+def _remember_part(tool_context: Optional[ToolContext], part_number: Optional[str]) -> None:
+    if tool_context is None:
+        return
+    if not part_number or not isinstance(part_number, str):
+        return
+    pn = part_number.strip()
+    if not pn:
+        return
+    try:
+        tool_context.actions.state_delta["last_part_number"] = pn
+    except Exception:
+        pass
+
+
 # Products
 
 
@@ -115,6 +129,7 @@ def get_product_by_part_number(
     if not res.data:
         return {"status": "not_found", "part_number": pn}
     product = res.data[0]
+    _remember_part(tool_context, product.get("part_number"))
     _emit_ui(
         tool_context,
         {
@@ -161,6 +176,7 @@ def check_compatibility(
         "part": prod.data[0],
         "model": model.data[0],
     }
+    _remember_part(tool_context, prod.data[0].get("part_number"))
     _emit_ui(
         tool_context,
         {
@@ -265,12 +281,58 @@ def get_compatible_parts(
     _emit_ui(
         tool_context,
         {
-            "type": "compatible_parts",
+            "type": "compatibility",
             "model": model.data[0],
-            "parts": parts_list,
+            "model_number": model.data[0].get("model_number"),
+            "items": parts_list,
         },
     )
     return {"status": "ok", "model": model.data[0], "parts": parts_list}
+
+
+def find_compatible_parts_by_keyword(
+    model_number: str,
+    keyword: str,
+    limit: int = 10,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
+    """
+    Find compatible parts for a model and filter by keyword in part number or name.
+    """
+    kw = (keyword or "").strip().lower()
+    if not kw:
+        return {"status": "error", "error": "keyword is required"}
+
+    # Avoid emitting the full compatible parts UI here; we will emit a filtered list.
+    raw = get_compatible_parts(model_number, limit=200, tool_context=None)
+    if raw.get("status") != "ok":
+        return raw
+
+    parts = raw.get("parts") or []
+    filtered = [
+        p
+        for p in parts
+        if kw in (p.get("name") or "").lower()
+        or kw in (p.get("part_number") or "").lower()
+    ]
+
+    filtered = filtered[: max(1, min(int(limit), 25))]
+    _emit_ui(
+        tool_context,
+        {
+            "type": "compatibility",
+            "model": raw.get("model"),
+            "model_number": (raw.get("model") or {}).get("model_number"),
+            "keyword": keyword.strip(),
+            "items": filtered,
+        },
+    )
+    return {
+        "status": "ok",
+        "model": raw.get("model"),
+        "keyword": keyword.strip(),
+        "items": filtered,
+    }
 
 
 # ----------------------------
@@ -278,10 +340,30 @@ def get_compatible_parts(
 # ----------------------------
 
 def get_installation_guide(
-    part_number: str,
+    part_number: Optional[str] = None,
     tool_context: Optional[ToolContext] = None,
 ) -> Dict[str, Any]:
-    prod = get_product_by_part_number(part_number, tool_context=tool_context)
+    pn = (part_number or "").strip()
+    if not pn and tool_context is not None:
+        pn = str(tool_context.state.get("last_part_number") or "").strip()
+    if pn and not pn.lower().startswith("ps") and tool_context is not None:
+        # Fallback when the model passes "this part" or a description.
+        fallback = str(tool_context.state.get("last_part_number") or "").strip()
+        if fallback:
+            pn = fallback
+    if not pn:
+        _emit_ui(
+            tool_context,
+            {
+                "type": "installation_guides",
+                "part": None,
+                "guides": [],
+                "replace_text": "What is the part number?",
+            },
+        )
+        return {"status": "error", "reason": "missing_part_number"}
+
+    prod = get_product_by_part_number(pn, tool_context=tool_context)
     if prod["status"] != "ok":
         return prod
 
@@ -303,7 +385,7 @@ def get_installation_guide(
                 "replace_text": f"I couldn't find an installation guide for {part_number.strip()}.",
             },
         )
-        return {"status": "not_found", "reason": "no_installation_guide", "part_number": part_number.strip()}
+        return {"status": "not_found", "reason": "no_installation_guide", "part_number": pn}
 
     guides_list = guides.data
     _emit_ui(
@@ -312,7 +394,7 @@ def get_installation_guide(
             "type": "installation_guides",
             "part": prod["product"],
             "guides": guides_list,
-            "replace_text": f"Here is the installation guide for {part_number.strip()}.",
+            "replace_text": f"Here is the installation guide for {pn}.",
         },
     )
     return {"status": "ok", "part": prod["product"], "guides": guides_list}
