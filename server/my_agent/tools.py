@@ -59,10 +59,24 @@ def _uid(
     return sid or DEFAULT_USER_ID
 
 
+def _emit_ui(tool_context: Optional[ToolContext], payload: Dict[str, Any]) -> None:
+    if tool_context is None:
+        return
+    try:
+        tool_context.actions.state_delta["ui"] = payload
+    except Exception:
+        pass
+
+
 # Products
 
 
-def search_products(query: str, category: Optional[str] = None, limit: int = 8) -> Dict[str, Any]:
+def search_products(
+    query: str,
+    category: Optional[str] = None,
+    limit: int = 8,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
     q = query.strip()
     t = sb().table("products").select("id,part_number,name,category").limit(limit)
 
@@ -73,10 +87,22 @@ def search_products(query: str, category: Optional[str] = None, limit: int = 8) 
         t = t.or_(f"part_number.ilike.%{q}%,name.ilike.%{q}%")
 
     res = t.execute()
-    return {"status": "ok", "items": res.data or []}
+    items = res.data or []
+    _emit_ui(
+        tool_context,
+        {
+            "type": "product_list",
+            "title": "Search results",
+            "items": items,
+        },
+    )
+    return {"status": "ok", "items": items}
 
 
-def get_product_by_part_number(part_number: str) -> Dict[str, Any]:
+def get_product_by_part_number(
+    part_number: str,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
     pn = part_number.strip()
     res = (
         sb()
@@ -88,14 +114,26 @@ def get_product_by_part_number(part_number: str) -> Dict[str, Any]:
     )
     if not res.data:
         return {"status": "not_found", "part_number": pn}
-    return {"status": "ok", "product": res.data[0]}
+    product = res.data[0]
+    _emit_ui(
+        tool_context,
+        {
+            "type": "product_detail",
+            "product": product,
+        },
+    )
+    return {"status": "ok", "product": product}
 
 
 # ----------------------------
 # Compatibility
 # ----------------------------
 
-def check_compatibility(part_number: str, model_number: str) -> Dict[str, Any]:
+def check_compatibility(
+    part_number: str,
+    model_number: str,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
     pn = part_number.strip()
     mn = model_number.strip()
 
@@ -117,16 +155,32 @@ def check_compatibility(part_number: str, model_number: str) -> Dict[str, Any]:
         .execute()
     )
 
-    return {
+    result = {
         "status": "ok",
         "compatible": bool(link.data),
         "part": prod.data[0],
         "model": model.data[0],
     }
+    _emit_ui(
+        tool_context,
+        {
+            "type": "compatibility",
+            "part_number": prod.data[0]["part_number"],
+            "model_number": model.data[0]["model_number"],
+            "compatible": bool(link.data),
+            "part": prod.data[0],
+            "model": model.data[0],
+        },
+    )
+    return result
 
 
-def get_compatible_models(part_number: str, limit: int = 50) -> Dict[str, Any]:
-    prod = get_product_by_part_number(part_number)
+def get_compatible_models(
+    part_number: str,
+    limit: int = 50,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
+    prod = get_product_by_part_number(part_number, tool_context=tool_context)
     if prod["status"] != "ok":
         return prod
 
@@ -153,10 +207,23 @@ def get_compatible_models(part_number: str, limit: int = 50) -> Dict[str, Any]:
         .execute()
     )
 
-    return {"status": "ok", "part": prod["product"], "models": models.data or []}
+    models_list = models.data or []
+    _emit_ui(
+        tool_context,
+        {
+            "type": "compatible_models",
+            "part": prod["product"],
+            "models": models_list,
+        },
+    )
+    return {"status": "ok", "part": prod["product"], "models": models_list}
 
 
-def get_compatible_parts(model_number: str, limit: int = 50) -> Dict[str, Any]:
+def get_compatible_parts(
+    model_number: str,
+    limit: int = 50,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
     mn = model_number.strip()
 
     model = (
@@ -194,15 +261,27 @@ def get_compatible_parts(model_number: str, limit: int = 50) -> Dict[str, Any]:
         .execute()
     )
 
-    return {"status": "ok", "model": model.data[0], "parts": parts.data or []}
+    parts_list = parts.data or []
+    _emit_ui(
+        tool_context,
+        {
+            "type": "compatible_parts",
+            "model": model.data[0],
+            "parts": parts_list,
+        },
+    )
+    return {"status": "ok", "model": model.data[0], "parts": parts_list}
 
 
 # ----------------------------
 # Installation guides
 # ----------------------------
 
-def get_installation_guide(part_number: str) -> Dict[str, Any]:
-    prod = get_product_by_part_number(part_number)
+def get_installation_guide(
+    part_number: str,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
+    prod = get_product_by_part_number(part_number, tool_context=tool_context)
     if prod["status"] != "ok":
         return prod
 
@@ -215,14 +294,62 @@ def get_installation_guide(part_number: str) -> Dict[str, Any]:
         .execute()
     )
     if not guides.data:
+        _emit_ui(
+            tool_context,
+            {
+                "type": "installation_guides",
+                "part": prod["product"],
+                "guides": [],
+                "replace_text": f"I couldn't find an installation guide for {part_number.strip()}.",
+            },
+        )
         return {"status": "not_found", "reason": "no_installation_guide", "part_number": part_number.strip()}
 
-    return {"status": "ok", "part": prod["product"], "guides": guides.data}
+    guides_list = guides.data
+    _emit_ui(
+        tool_context,
+        {
+            "type": "installation_guides",
+            "part": prod["product"],
+            "guides": guides_list,
+            "replace_text": f"Here is the installation guide for {part_number.strip()}.",
+        },
+    )
+    return {"status": "ok", "part": prod["product"], "guides": guides_list}
 
 
 # ----------------------------
 # Transactions
 # ----------------------------
+
+
+def _cart_ui_payload(cart_state: Dict[str, Any]) -> Dict[str, Any]:
+    items = []
+    total_qty = 0
+    for it in cart_state.get("items") or []:
+        p = it.get("product") or {}
+        qty = int(it.get("quantity") or 0)
+        total_qty += qty
+        items.append(
+            {
+                "part_number": p.get("part_number"),
+                "name": p.get("name"),
+                "category": p.get("category"),
+                "quantity": qty,
+                "unit_price_cents": it.get("unit_price_cents"),
+            }
+        )
+    replace_text = (
+        "Your cart is empty."
+        if total_qty == 0
+        else f"You have {total_qty} item{'s' if total_qty != 1 else ''} in your cart."
+    )
+    return {
+        "type": "cart",
+        "cart_id": cart_state.get("cart_id"),
+        "items": items,
+        "replace_text": replace_text,
+    }
 
 def create_or_get_cart(session_id: str, tool_context: Optional[ToolContext] = None) -> Dict[str, Any]:
     sid = _sid(session_id, tool_context)
@@ -280,12 +407,16 @@ def add_to_cart(
     if cur.data:
         new_qty = int(cur.data[0]["quantity"]) + qty
         upd = sb().table("cart_items").update({"quantity": new_qty}).eq("id", cur.data[0]["id"]).execute()
-        return {
+        result = {
             "status": "ok",
             "cart_id": cart_id,
             "action": "incremented",
             "item": {"part_number": product["part_number"], "name": product["name"], "quantity": upd.data[0]["quantity"]},
         }
+        cart_state = get_cart(session_id, tool_context=tool_context)
+        if cart_state.get("status") == "ok":
+            _emit_ui(tool_context, _cart_ui_payload(cart_state))
+        return result
 
     ins = sb().table("cart_items").insert({
         "cart_id": cart_id,
@@ -294,12 +425,16 @@ def add_to_cart(
         "unit_price_cents": None,
     }).execute()
 
-    return {
+    result = {
         "status": "ok",
         "cart_id": cart_id,
         "action": "inserted",
         "item": {"part_number": product["part_number"], "name": product["name"], "quantity": ins.data[0]["quantity"]},
     }
+    cart_state = get_cart(session_id, tool_context=tool_context)
+    if cart_state.get("status") == "ok":
+        _emit_ui(tool_context, _cart_ui_payload(cart_state))
+    return result
 
 
 def set_cart_item_quantity(
@@ -338,12 +473,16 @@ def set_cart_item_quantity(
 
     if cur.data:
         upd = sb().table("cart_items").update({"quantity": qty}).eq("id", cur.data[0]["id"]).execute()
-        return {
+        result = {
             "status": "ok",
             "cart_id": cart_id,
             "action": "set_quantity",
             "item": {"part_number": product["part_number"], "name": product["name"], "quantity": upd.data[0]["quantity"]},
         }
+        cart_state = get_cart(session_id, tool_context=tool_context)
+        if cart_state.get("status") == "ok":
+            _emit_ui(tool_context, _cart_ui_payload(cart_state))
+        return result
 
     ins = sb().table("cart_items").insert({
         "cart_id": cart_id,
@@ -352,12 +491,16 @@ def set_cart_item_quantity(
         "unit_price_cents": None,
     }).execute()
 
-    return {
+    result = {
         "status": "ok",
         "cart_id": cart_id,
         "action": "inserted_with_quantity",
         "item": {"part_number": product["part_number"], "name": product["name"], "quantity": ins.data[0]["quantity"]},
     }
+    cart_state = get_cart(session_id, tool_context=tool_context)
+    if cart_state.get("status") == "ok":
+        _emit_ui(tool_context, _cart_ui_payload(cart_state))
+    return result
 
 
 def remove_from_cart(
@@ -389,10 +532,18 @@ def remove_from_cart(
         .execute()
     )
     if not cur.data:
-        return {"status": "ok", "cart_id": cart_id, "action": "no_op", "message": "Item not in cart."}
+        result = {"status": "ok", "cart_id": cart_id, "action": "no_op", "message": "Item not in cart."}
+        cart_state = get_cart(session_id, tool_context=tool_context)
+        if cart_state.get("status") == "ok":
+            _emit_ui(tool_context, _cart_ui_payload(cart_state))
+        return result
 
     sb().table("cart_items").delete().eq("id", cur.data[0]["id"]).execute()
-    return {"status": "ok", "cart_id": cart_id, "action": "removed", "item": {"part_number": product["part_number"], "name": product["name"]}}
+    result = {"status": "ok", "cart_id": cart_id, "action": "removed", "item": {"part_number": product["part_number"], "name": product["name"]}}
+    cart_state = get_cart(session_id, tool_context=tool_context)
+    if cart_state.get("status") == "ok":
+        _emit_ui(tool_context, _cart_ui_payload(cart_state))
+    return result
 
 
 def decrement_cart_item(
@@ -429,17 +580,29 @@ def decrement_cart_item(
         .execute()
     )
     if not cur.data:
-        return {"status": "ok", "cart_id": cart_id, "action": "no_op", "message": "Item not in cart."}
+        result = {"status": "ok", "cart_id": cart_id, "action": "no_op", "message": "Item not in cart."}
+        cart_state = get_cart(session_id, tool_context=tool_context)
+        if cart_state.get("status") == "ok":
+            _emit_ui(tool_context, _cart_ui_payload(cart_state))
+        return result
 
     current_qty = int(cur.data[0]["quantity"])
     new_qty = current_qty - dec
 
     if new_qty <= 0:
         sb().table("cart_items").delete().eq("id", cur.data[0]["id"]).execute()
-        return {"status": "ok", "cart_id": cart_id, "action": "removed", "item": {"part_number": product["part_number"], "name": product["name"]}}
+        result = {"status": "ok", "cart_id": cart_id, "action": "removed", "item": {"part_number": product["part_number"], "name": product["name"]}}
+        cart_state = get_cart(session_id, tool_context=tool_context)
+        if cart_state.get("status") == "ok":
+            _emit_ui(tool_context, _cart_ui_payload(cart_state))
+        return result
 
     upd = sb().table("cart_items").update({"quantity": new_qty}).eq("id", cur.data[0]["id"]).execute()
-    return {"status": "ok", "cart_id": cart_id, "action": "decremented", "item": {"part_number": product["part_number"], "name": product["name"], "quantity": upd.data[0]["quantity"]}}
+    result = {"status": "ok", "cart_id": cart_id, "action": "decremented", "item": {"part_number": product["part_number"], "name": product["name"], "quantity": upd.data[0]["quantity"]}}
+    cart_state = get_cart(session_id, tool_context=tool_context)
+    if cart_state.get("status") == "ok":
+        _emit_ui(tool_context, _cart_ui_payload(cart_state))
+    return result
 
 
 def get_cart(session_id: str, tool_context: Optional[ToolContext] = None) -> Dict[str, Any]:
@@ -473,7 +636,9 @@ def get_cart(session_id: str, tool_context: Optional[ToolContext] = None) -> Dic
             "product": p,
         })
 
-    return {"status": "ok", "cart_id": cart_id, "items": hydrated}
+    result = {"status": "ok", "cart_id": cart_id, "items": hydrated}
+    _emit_ui(tool_context, _cart_ui_payload(result))
+    return result
 
 
 def estimate_shipping(
@@ -503,7 +668,17 @@ def estimate_shipping(
         "estimate_json": estimate,
     }).execute()
 
-    return {"status": "ok", "cart_id": cart_id, "estimate": estimate}
+    result = {"status": "ok", "cart_id": cart_id, "estimate": estimate}
+    _emit_ui(
+        tool_context,
+        {
+            "type": "shipping",
+            "zip_code": estimate.get("zip_code"),
+            "total_items": estimate.get("total_items"),
+            "options": estimate.get("options"),
+        },
+    )
+    return result
 
 
 def create_checkout_session(
@@ -564,13 +739,22 @@ def create_checkout_session(
     sb().table("cart_items").delete().eq("cart_id", cart_id).execute()
     sb().table("carts").update({"status": "finalized"}).eq("id", cart_id).execute()
 
-    return {
+    result = {
         "status": "ok",
         "cart_id": cart_id,
         "checkout_session_id": session_uuid,
         "checkout_url": checkout_url,
         "cart_finalized": True,
     }
+    _emit_ui(
+        tool_context,
+        {
+            "type": "checkout",
+            "checkout_session_id": session_uuid,
+            "checkout_url": checkout_url,
+        },
+    )
+    return result
 
 
 def list_checkout_history(
@@ -672,7 +856,7 @@ def list_order_history(
             }
         )
 
-    return {
+    result = {
         "status": "ok",
         "user_id": uid,
         "items": hydrated,
@@ -681,8 +865,22 @@ def list_order_history(
         "next_offset": offset + len(hydrated),
         "has_more": len(hydrated) == limit,
     }
+    _emit_ui(
+        tool_context,
+        {
+            "type": "order_history",
+            "orders": hydrated,
+            "offset": offset,
+            "has_more": len(hydrated) == limit,
+        },
+    )
+    return result
 
-def list_products(category: Optional[str] = None, limit: int = 12) -> Dict[str, Any]:
+def list_products(
+    category: Optional[str] = None,
+    limit: int = 12,
+    tool_context: Optional[ToolContext] = None,
+) -> Dict[str, Any]:
     """
     Browse parts by category ('refrigerator' or 'dishwasher') without a search query.
     If category is omitted or "all", returns a combined list across both categories.
@@ -709,12 +907,21 @@ def list_products(category: Optional[str] = None, limit: int = 12) -> Dict[str, 
             .execute()
         )
         items = (fr.data or []) + (dw.data or [])
-        return {
+        payload = {
             "status": "ok",
             "items": items[:limit],
             "categories": ["refrigerator", "dishwasher"],
             "limit": limit,
         }
+        _emit_ui(
+            tool_context,
+            {
+                "type": "product_list",
+                "title": "All parts (refrigerator + dishwasher)",
+                "items": items[:limit],
+            },
+        )
+        return payload
 
     if cat not in ("refrigerator", "dishwasher"):
         return {"status": "error", "error": "category must be 'refrigerator' or 'dishwasher' (or 'all')"}
@@ -727,7 +934,16 @@ def list_products(category: Optional[str] = None, limit: int = 12) -> Dict[str, 
         .limit(limit)
         .execute()
     )
-    return {"status": "ok", "items": res.data or [], "category": cat, "limit": limit}
+    items = res.data or []
+    _emit_ui(
+        tool_context,
+        {
+            "type": "product_list",
+            "title": f"{cat.title()} parts",
+            "items": items,
+        },
+    )
+    return {"status": "ok", "items": items, "category": cat, "limit": limit}
 
 
 def list_supported_models(
@@ -735,6 +951,7 @@ def list_supported_models(
     limit: int = 25,
     offset: int = 0,
     brand: Optional[str] = None,
+    tool_context: Optional[ToolContext] = None,
 ) -> Dict[str, Any]:
     """
     List models that have at least one compatible product in the given category
@@ -786,7 +1003,7 @@ def list_supported_models(
 
     res = q.range(offset, offset + limit - 1).execute()
     items = res.data or []
-    return {
+    payload = {
         "status": "ok",
         "category": cat,
         "items": items,
@@ -795,6 +1012,17 @@ def list_supported_models(
         "next_offset": offset + len(items),
         "has_more": len(items) == limit,
     }
+    _emit_ui(
+        tool_context,
+        {
+            "type": "model_list",
+            "title": f"Supported {cat.title()} models",
+            "items": items,
+            "offset": offset,
+            "has_more": len(items) == limit,
+        },
+    )
+    return payload
 
 from typing import Any, Dict, Optional
 
@@ -802,6 +1030,7 @@ def list_models(
     brand: Optional[str] = None,
     limit: int = 25,
     offset: int = 0,
+    tool_context: Optional[ToolContext] = None,
 ) -> Dict[str, Any]:
     """
     List appliance models. Use pagination.
@@ -818,7 +1047,7 @@ def list_models(
     res = q.range(offset, offset + limit - 1).execute()
     items = res.data or []
 
-    return {
+    payload = {
         "status": "ok",
         "items": items,
         "limit": limit,
@@ -826,3 +1055,14 @@ def list_models(
         "next_offset": offset + len(items),
         "has_more": len(items) == limit,
     }
+    _emit_ui(
+        tool_context,
+        {
+            "type": "model_list",
+            "title": "Models",
+            "items": items,
+            "offset": offset,
+            "has_more": len(items) == limit,
+        },
+    )
+    return payload

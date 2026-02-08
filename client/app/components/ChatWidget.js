@@ -29,7 +29,8 @@ export default function ChatWidget() {
     { 
       id: 1, 
       sender: 'agent', 
-      text: 'Welcome to PartSelect! I can help you verify part fittings or assist with your order. Happy to help!' 
+      text: 'Welcome to PartSelect! I can help you verify part fittings or assist with your order. Happy to help!',
+      ui: null,
     }
   ]);
 
@@ -104,6 +105,156 @@ export default function ChatWidget() {
     return null;
   };
 
+  const formatCents = (cents) => {
+    if (typeof cents !== 'number') return null;
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100);
+  };
+
+  const renderUi = (ui) => {
+    if (!ui || typeof ui !== 'object') return null;
+
+    if (ui.type === 'product_list') {
+      const items = Array.isArray(ui.items) ? ui.items : [];
+      return (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
+          <div className="font-semibold">{ui.title || 'Parts'}</div>
+          <div className="mt-1 space-y-1">
+            {items.slice(0, 10).map((item) => (
+              <div key={item.part_number} className="flex justify-between gap-2">
+                <span className="font-medium">{item.part_number}</span>
+                <span className="flex-1 text-right">{item.name}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (ui.type === 'product_detail') {
+      const p = ui.product || {};
+      return (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
+          <div className="font-semibold">Part Details</div>
+          <div className="mt-1">
+            <div><span className="font-medium">Part:</span> {p.part_number}</div>
+            <div><span className="font-medium">Name:</span> {p.name}</div>
+            <div><span className="font-medium">Category:</span> {p.category}</div>
+          </div>
+        </div>
+      );
+    }
+
+    if (ui.type === 'compatibility') {
+      const compatible = !!ui.compatible;
+      return (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
+          <div className="font-semibold">Compatibility</div>
+          <div className="mt-1">
+            <div><span className="font-medium">Part:</span> {ui.part_number}</div>
+            <div><span className="font-medium">Model:</span> {ui.model_number}</div>
+            <div className={`mt-1 inline-flex rounded px-2 py-0.5 text-[11px] ${compatible ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+              {compatible ? 'Compatible' : 'Not compatible'}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (ui.type === 'cart') {
+      const items = Array.isArray(ui.items) ? ui.items : [];
+      const totalQty = items.reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+      return (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
+          <div className="font-semibold">Cart Summary</div>
+          <div className="mt-1">Total items: {totalQty}</div>
+          <div className="mt-1 space-y-1">
+            {items.map((item) => (
+              <div key={item.part_number} className="flex justify-between gap-2">
+                <span className="font-medium">{item.part_number}</span>
+                <span className="flex-1 text-right">Qty {item.quantity}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (ui.type === 'installation_guides') {
+      const guides = Array.isArray(ui.guides) ? ui.guides : [];
+      const first = guides[0];
+      if (!first) return null;
+      const steps = Array.isArray(first.steps) ? first.steps : [];
+      return (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
+          <div className="font-semibold">{first.title}</div>
+          <div className="mt-1 space-y-1">
+            {steps.slice(0, 4).map((step, idx) => (
+              <div key={`${idx}-${String(step).slice(0, 8)}`}>
+                {idx + 1}. {step}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (ui.type === 'shipping') {
+      const options = Array.isArray(ui.options) ? ui.options : [];
+      return (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
+          <div className="font-semibold">Shipping Options</div>
+          <div className="mt-1 space-y-1">
+            {options.map((opt) => (
+              <div key={opt.service} className="flex justify-between gap-2">
+                <span className="font-medium">{opt.service}</span>
+                <span>{opt.eta_days} days</span>
+                <span>{formatCents(opt.cost_cents) || '—'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (ui.type === 'checkout') {
+      return (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
+          <div className="font-semibold">Checkout Ready</div>
+          {ui.checkout_url ? (
+            <a href={ui.checkout_url} className="mt-1 inline-block text-blue-600 underline" target="_blank" rel="noreferrer">
+              Open checkout
+            </a>
+          ) : (
+            <div className="mt-1">Checkout link unavailable.</div>
+          )}
+        </div>
+      );
+    }
+
+    if (ui.type === 'order_history') {
+      const orders = Array.isArray(ui.orders) ? ui.orders : [];
+      return (
+        <div className="mt-2 rounded-md border border-gray-200 bg-white p-2 text-xs text-gray-700">
+          <div className="font-semibold">Order History</div>
+          <div className="mt-1 space-y-1">
+            {orders.slice(0, 5).map((order) => (
+              <div key={order.id} className="rounded border border-gray-100 p-1">
+                <div>Order {String(order.id).slice(0, 8)} • {order.status}</div>
+                {(order.items || []).slice(0, 3).map((item) => (
+                  <div key={`${order.id}-${item.part_number}`}>
+                    {item.part_number} × {item.quantity}
+                  </div>
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
   const handleSend = async (e) => {
     e.preventDefault();
     if (!inputText.trim() || isStreaming) return;
@@ -113,7 +264,7 @@ export default function ChatWidget() {
     const baseId = Date.now();
     const userMsg = { id: baseId, sender: 'user', text };
     const agentMsgId = baseId + 1;
-    const agentMsg = { id: agentMsgId, sender: 'agent', text: 'Thinking...' };
+    const agentMsg = { id: agentMsgId, sender: 'agent', text: 'Thinking...', ui: null };
     setMessages((prev) => [...prev, userMsg]);
     setInputText('');
     setMessages((prev) => [...prev, agentMsg]);
@@ -124,13 +275,27 @@ export default function ChatWidget() {
 
     let hasReceivedTokens = false;
 
+    let ignoreStreamedText = false;
+
     const updateAgentMessage = (deltaText, mode = 'append') => {
+      if (ignoreStreamedText && mode === 'append') return;
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== agentMsgId) return m;
           if (mode === 'set') return { ...m, text: deltaText };
           return { ...m, text: (m.text || '') + deltaText };
         })
+      );
+    };
+
+    const updateAgentUi = (uiPayload) => {
+      if (!uiPayload) return;
+      if (uiPayload.replace_text) {
+        ignoreStreamedText = true;
+        updateAgentMessage(uiPayload.replace_text, 'set');
+      }
+      setMessages((prev) =>
+        prev.map((m) => (m.id === agentMsgId ? { ...m, ui: uiPayload } : m))
       );
     };
 
@@ -184,6 +349,16 @@ export default function ChatWidget() {
             updateAgentMessage(data, 'set');
             hasReceivedTokens = true;
             continue;
+          }
+
+          let parsedJson = null;
+          try {
+            parsedJson = JSON.parse(data);
+          } catch {
+            parsedJson = null;
+          }
+          if (parsedJson?.actions?.stateDelta?.ui) {
+            updateAgentUi(parsedJson.actions.stateDelta.ui);
           }
 
           const parsed = extractTextFromEvent(data);
@@ -241,6 +416,7 @@ export default function ChatWidget() {
                   }`}
                 >
                   {msg.text}
+                  {msg.sender === 'agent' && msg.ui ? renderUi(msg.ui) : null}
                 </div>
               </div>
             ))}
